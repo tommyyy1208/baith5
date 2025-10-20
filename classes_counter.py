@@ -6,7 +6,7 @@ import time
 import re
 
 # ==========================
-# ĐỌC FILE CLASS ĐA NGÔN NGỮ
+# ĐỌC FILE CLASS ĐA NGÔN NGỮ - TỐI ƯU
 # ==========================
 def load_classes_from_file(filename="classes.txt"):
     if not os.path.exists(filename):
@@ -17,37 +17,35 @@ def load_classes_from_file(filename="classes.txt"):
         lines = [line.strip() for line in f if line.strip()]
 
     lang_dict = {}
-    class_mapping = {}  # Ánh xạ class giữa các ngôn ngữ
+    class_mapping = {}
     current_lang = None
     current_class_index = 0
-    parent_classes = {}  # Lưu trữ class mẹ
-    child_classes = []   # Lưu trữ chỉ class con
+    parent_classes = {}
+    child_classes = []
 
     for line in lines:
-        if re.match(r"^\d+\.\s", line):  # dòng ngôn ngữ
+        if re.match(r"^\d+\.\s", line):
             lang_name = line.split(". ", 1)[1]
             current_lang = lang_name
             lang_dict[current_lang] = []
             current_class_index = 0
-        elif re.match(r"^\d+\.\d+\.\s", line) and current_lang:  # class mẹ
+        elif re.match(r"^\d+\.\d+\.\s", line) and current_lang:
             cls_name = line.split(". ", 1)[1]
             lang_dict[current_lang].append(cls_name)
             
-            # Tạo mapping cho class mẹ
             if current_class_index not in class_mapping:
                 class_mapping[current_class_index] = {}
             class_mapping[current_class_index][current_lang] = cls_name
             parent_classes[current_class_index] = cls_name
             current_class_index += 1
-        elif re.match(r"^\d+\.\d+\.\d+\.\s", line) and current_lang:  # class con
+        elif re.match(r"^\d+\.\d+\.\d+\.\s", line) and current_lang:
             cls_name = line.split(". ", 1)[1]
             lang_dict[current_lang].append(cls_name)
             
-            # Tạo mapping cho class con
             if current_class_index not in class_mapping:
                 class_mapping[current_class_index] = {}
             class_mapping[current_class_index][current_lang] = cls_name
-            child_classes.append(current_class_index)  # Thêm vào danh sách class con
+            child_classes.append(current_class_index)
             current_class_index += 1
 
     languages = list(lang_dict.keys())
@@ -55,42 +53,41 @@ def load_classes_from_file(filename="classes.txt"):
 
 # Hàm validate chỉ cho phép nhập số
 def validate_number_input(new_value):
-    if new_value == "":
-        return True
-    try:
-        int(new_value)
-        return True
-    except ValueError:
-        return False
+    return new_value == "" or new_value.isdigit()
 
 # ==========================
-# ỨNG DỤNG CHÍNH
+# ỨNG DỤNG CHÍNH - ĐÃ TỐI ƯU
 # ==========================
 class CounterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Annotation Counter Tool")
-        self.root.geometry("1200x800")  # Kích thước mặc định lớn hơn
+        self.root.geometry("1400x900")
 
+        # Pre-load data
         self.class_sets, self.languages, self.class_mapping, self.parent_classes, self.child_classes = load_classes_from_file()
         if not self.languages:
             messagebox.showerror("Error", "No class definitions found in classes.txt")
             self.root.destroy()
             return
 
-        self.current_language = tk.StringVar(value=self.languages[0])
-
-        # Tạo danh sách các class theo index
+        # ĐẢM BẢO class_indexes ĐƯỢC KHỞI TẠO
         self.class_indexes = list(self.class_mapping.keys())
         
-        # Khởi tạo counts_all theo index class
+        self.current_language = tk.StringVar(value=self.languages[0])
+        
+        # Cache để tăng tốc độ
+        self._language_cache = {}
+        self._column_mapping_cache = None
+        
+        # Khởi tạo counts_all
         self.counts_all = {}
         for index in self.class_indexes:
             self.counts_all[index] = tk.IntVar(value=0)
 
-        self.count_labels = {}  # Lưu trữ label hiển thị cho mỗi class
-        self.entry_widgets = {}  # Lưu trữ entry widgets cho nhập số trực tiếp
-        self.total_work_time = 0.0  # lưu giây
+        self.count_labels = {}
+        self.entry_widgets = {}
+        self.total_work_time = 0.0
         self.session_start = None
         self.is_paused = True
 
@@ -101,177 +98,326 @@ class CounterApp:
         self.update_timer_display()
 
     # ----------------------------
-    # GIAO DIỆN CHÍNH
+    # GIAO DIỆN CHÍNH - TỐI ƯU
     # ----------------------------
     def setup_ui(self):
-        # Main frame với scrollbar
-        main_container = ttk.Frame(self.root)
-        main_container.pack(fill="both", expand=True)
+        # Sử dụng frame đơn giản hơn, không dùng canvas scroll cho phần chính
+        main_frame = ttk.Frame(self.root, padding=10)
+        main_frame.pack(fill="both", expand=True)
 
+        # Phần trên cùng - được giữ nguyên
+        self.setup_top_controls(main_frame)
+        
+        # Phần class - tối ưu hiển thị
+        self.setup_class_display(main_frame)
+
+    def setup_top_controls(self, parent):
+        """Thiết lập các control phía trên - ĐÃ ĐIỀU CHỈNH LAYOUT"""
+        # Tạo frame chính cho các control trên cùng
+        top_main_frame = ttk.Frame(parent)
+        top_main_frame.pack(pady=10, fill="x")
+        
+        # Hàng 1: Dataset Name và Display Language
+        row1_frame = ttk.Frame(top_main_frame)
+        row1_frame.pack(fill="x", pady=5)
+        
+        # Dataset Name
+        ttk.Label(row1_frame, text="Dataset Name:").pack(side="left")
+        self.dataset_name_entry = ttk.Entry(row1_frame, width=30)
+        self.dataset_name_entry.pack(side="left", padx=5)
+
+        # Display Language
+        ttk.Label(row1_frame, text="Display Language:").pack(side="left", padx=(20, 5))
+        self.lang_menu = ttk.OptionMenu(
+            row1_frame, self.current_language, self.languages[0], *self.languages, 
+            command=self.update_language
+        )
+        self.lang_menu.pack(side="left", padx=(0, 20))
+
+        # Working Time - ĐƯA LÊN CÙNG HÀNG
+        self.timer_label = ttk.Label(row1_frame, text="Working Time: 00:00:00", 
+                                   font=("Arial", 11, "bold"))
+        self.timer_label.pack(side="left", padx=(20, 0))
+
+        # Hàng 2: Nút Play/Pause và Save/Load
+        row2_frame = ttk.Frame(top_main_frame)
+        row2_frame.pack(fill="x", pady=5)
+        
+        # Nút Play / Pause
+        ttk.Label(row2_frame, text="Timer Controls:").pack(side="left")
+        ttk.Button(row2_frame, text="▶ Play", 
+                  command=self.start_timer).pack(side="left", padx=5)
+        ttk.Button(row2_frame, text="⏸ Pause", 
+                  command=self.pause_timer).pack(side="left", padx=5)
+
+        # Nút Save và Load - ĐƯA LÊN CÙNG HÀNG
+        ttk.Label(row2_frame, text="Data Management:").pack(side="left", padx=(40, 5))
+        ttk.Button(row2_frame, text="💾 Save to Excel", 
+                  command=self.save_to_excel).pack(side="left", padx=5)
+        ttk.Button(row2_frame, text="📂 Load from Excel", 
+                  command=self.load_from_excel).pack(side="left", padx=5)
+
+    def setup_class_display(self, parent):
+        """Thiết lập hiển thị class với canvas scroll - tối ưu"""
+        # Tạo container với scrollbar
+        container = ttk.Frame(parent)
+        container.pack(fill="both", expand=True, pady=10)
+        
         # Tạo canvas và scrollbar
-        self.canvas = tk.Canvas(main_container)
-        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=self.canvas.yview)
+        self.canvas = tk.Canvas(container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
 
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
-
+        # Configure canvas scrolling
+        self.scrollable_frame.bind("<Configure>", self._on_frame_configure)
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=scrollbar.set)
 
+        # Pack với tỷ lệ phù hợp
         self.canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Bind mouse wheel to canvas
+        # Bind sự kiện scroll
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.scrollable_frame.bind("<MouseWheel>", self._on_mousewheel)
 
-        main_frame = ttk.Frame(self.scrollable_frame, padding=10)
-        main_frame.pack(fill="both", expand=True)
+        # Frame chính cho class
+        self.class_frame = ttk.Frame(self.scrollable_frame)
+        self.class_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # Nhập tên dữ liệu
-        top_frame = ttk.Frame(main_frame)
-        top_frame.pack(pady=10, fill="x")
-        ttk.Label(top_frame, text="Dataset Name:").pack(side="left")
-        self.dataset_name_entry = ttk.Entry(top_frame, width=30)
-        self.dataset_name_entry.pack(side="left", padx=5)
+        # Pre-render layout
+        self._precompute_column_mapping()
 
-        # Chọn ngôn ngữ hiển thị
-        ttk.Label(top_frame, text="Display Language:").pack(side="left", padx=(20, 5))
-        lang_menu = ttk.OptionMenu(
-            top_frame, self.current_language, self.languages[0], *self.languages, command=self.update_language
-        )
-        lang_menu.pack(side="left")
+    def _precompute_column_mapping(self):
+        """Tính toán trước column mapping để tăng tốc"""
+        if self._column_mapping_cache is None:
+            self._column_mapping_cache = {}
+            for parent_index, parent_name in self.parent_classes.items():
+                # Kiểm tra cache cho ngôn ngữ đầu tiên
+                current_parent_name = self.class_mapping[parent_index].get(self.languages[0], parent_name)
+                
+                if any(x in current_parent_name for x in ["車線", "Lane", "Làn đường"]):
+                    self._column_mapping_cache[parent_index] = "LEFT"
+                elif any(x in current_parent_name for x in ["横断", "Crosswalk", "Vạch sang đường"]):
+                    self._column_mapping_cache[parent_index] = "LEFT"
+                elif any(x in current_parent_name for x in ["センター", "Center", "Đường tâm"]):
+                    self._column_mapping_cache[parent_index] = "CENTER"
+                elif any(x in current_parent_name for x in ["交差点", "Intersection", "Giao lộ"]):
+                    self._column_mapping_cache[parent_index] = "CENTER"
+                elif any(x in current_parent_name for x in ["道路端", "Roadside", "Lề đường"]):
+                    self._column_mapping_cache[parent_index] = "CENTER"
+                elif any(x in current_parent_name for x in ["その他", "Others", "Khác"]):
+                    self._column_mapping_cache[parent_index] = "RIGHT"
+                else:
+                    self._column_mapping_cache[parent_index] = "CENTER"
 
-        # Nút Save và Load - ĐƯA LÊN TRÊN
-        save_load_frame = ttk.Frame(main_frame)
-        save_load_frame.pack(pady=10)
-        ttk.Button(save_load_frame, text="💾 Save to Excel", command=self.save_to_excel).pack(side="left", padx=5)
-        ttk.Button(save_load_frame, text="📂 Load from Excel", command=self.load_from_excel).pack(side="left", padx=5)
-
-        # Hiển thị thời gian làm việc
-        self.timer_label = ttk.Label(main_frame, text="Working Time: 00:00:00", font=("Arial", 11))
-        self.timer_label.pack(pady=(10, 5))
-
-        # Nút Play / Pause
-        timer_controls = ttk.Frame(main_frame)
-        timer_controls.pack()
-        ttk.Button(timer_controls, text="▶ Play", command=self.start_timer).pack(side="left", padx=5)
-        ttk.Button(timer_controls, text="⏸ Pause", command=self.pause_timer).pack(side="left", padx=5)
-
-        # Danh sách class - chia thành 2 hàng, mỗi hàng 3 cột
-        self.class_frame = ttk.Frame(main_frame)
-        self.class_frame.pack(pady=10, fill="both", expand=True)
-
-        self.update_language(self.current_language.get())
+    def _on_frame_configure(self, event=None):
+        """Cấu hình lại canvas khi frame thay đổi kích thước"""
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        """Xử lý sự kiện scroll chuột"""
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     # ----------------------------
-    # CẬP NHẬT NGÔN NGỮ HIỂN THỊ
+    # CẬP NHẬT NGÔN NGỮ - TỐI ƯU
     # ----------------------------
     def update_language(self, lang):
-        # Xóa widget cũ
+        """Cập nhật ngôn ngữ với caching để tăng tốc"""
+        # Kiểm tra cache
+        if lang in self._language_cache:
+            cached_data = self._language_cache[lang]
+            self._rebuild_ui_from_cache(cached_data)
+            return
+
+        # Xóa widget cũ một cách hiệu quả
         for widget in self.class_frame.winfo_children():
             widget.destroy()
 
-        # Xóa count labels cũ và entry widgets cũ
         self.count_labels.clear()
         self.entry_widgets.clear()
 
-        # Lấy danh sách class mẹ (6 cụm chính)
-        parent_indices = sorted(list(self.parent_classes.keys()))
+        # Tạo layout 3 cột
+        columns_frame = ttk.Frame(self.class_frame)
+        columns_frame.pack(fill="both", expand=True)
         
-        # Tạo 2 hàng: hàng trên và hàng dưới
-        top_row_frame = ttk.Frame(self.class_frame)
-        top_row_frame.pack(fill="x", pady=5)
+        left_column = ttk.Frame(columns_frame)
+        left_column.pack(side="left", fill="both", expand=True, padx=5)
         
-        bottom_row_frame = ttk.Frame(self.class_frame)
-        bottom_row_frame.pack(fill="x", pady=5)
+        center_column = ttk.Frame(columns_frame)
+        center_column.pack(side="left", fill="both", expand=True, padx=5)
+        
+        right_column = ttk.Frame(columns_frame)
+        right_column.pack(side="left", fill="both", expand=True, padx=5)
 
-        # Phân chia 6 cụm thành 2 hàng, mỗi hàng 3 cụm
-        for i, parent_index in enumerate(parent_indices):
-            if i < 6:  # Chỉ lấy 6 cụm đầu tiên
-                parent_name = self.class_mapping[parent_index].get(lang, f"Parent_{parent_index}")
+        # Cache để lưu kết quả
+        cache_data = {
+            'left': [],
+            'center': [], 
+            'right': []
+        }
+
+        # Phân bổ các cụm class
+        for parent_index in sorted(self.parent_classes.keys()):
+            if parent_index not in self._column_mapping_cache:
+                continue
                 
-                # Chọn hàng (0-2: hàng trên, 3-5: hàng dưới)
-                if i < 3:
-                    row_frame = top_row_frame
-                    col = i
-                else:
-                    row_frame = bottom_row_frame
-                    col = i - 3
-                
-                # Tạo section cho class mẹ
-                section_frame = ttk.LabelFrame(row_frame, text=parent_name, padding=5)
-                section_frame.pack(side="left", fill="both", expand=True, padx=5)
-                
-                # Tìm tất cả class con thuộc class mẹ này
-                child_indices = []
-                for idx in self.class_indexes:
-                    if idx > parent_index:
-                        # Kiểm tra xem có phải class con không (dựa trên index liên tiếp)
-                        if idx not in self.parent_classes:  # Không phải class mẹ
-                            child_indices.append(idx)
-                        else:
-                            break  # Đã gặp class mẹ khác
-                
-                # Tạo các class con
-                for child_index in child_indices:
+            parent_name = self.class_mapping[parent_index].get(lang, f"Parent_{parent_index}")
+            column_type = self._column_mapping_cache[parent_index]
+            
+            if column_type == "LEFT":
+                target_column = left_column
+                cache_key = 'left'
+            elif column_type == "CENTER":
+                target_column = center_column
+                cache_key = 'center'
+            else:  # RIGHT
+                target_column = right_column
+                cache_key = 'right'
+
+            # Tạo section
+            section_frame = ttk.LabelFrame(target_column, text=parent_name, padding=5)
+            section_frame.pack(fill="both", expand=True, pady=5)
+            
+            # Tìm class con
+            child_indices = self._find_child_indices(parent_index)
+            
+            # Tạo các class con
+            section_data = []
+            for child_index in child_indices:
+                if child_index in self.class_mapping:
                     class_name = self.class_mapping[child_index].get(lang, f"Class_{child_index}")
-                    self.create_class_row(section_frame, class_name, child_index)
+                    row_data = self._create_class_row(section_frame, class_name, child_index, column_type == "RIGHT")
+                    section_data.append(row_data)
+            
+            cache_data[cache_key].append({
+                'parent_name': parent_name,
+                'children': section_data
+            })
 
-    def create_class_row(self, frame, class_name, class_index):
+        # Lưu vào cache
+        self._language_cache[lang] = cache_data
+
+    def _find_child_indices(self, parent_index):
+        """Tìm class con một cách hiệu quả"""
+        child_indices = []
+        sorted_parents = sorted(self.parent_classes.keys())
+        
+        # Tìm parent tiếp theo
+        next_parent_index = None
+        for next_idx in sorted_parents:
+            if next_idx > parent_index:
+                next_parent_index = next_idx
+                break
+        
+        # Tìm class con trong khoảng
+        if next_parent_index is not None:
+            for idx in range(parent_index + 1, next_parent_index):
+                if idx in self.class_mapping and idx not in self.parent_classes:
+                    child_indices.append(idx)
+        else:
+            for idx in range(parent_index + 1, len(self.class_mapping)):
+                if idx in self.class_mapping and idx not in self.parent_classes:
+                    child_indices.append(idx)
+        
+        return child_indices
+
+    def _create_class_row(self, frame, class_name, class_index, is_others_section=False):
+        """Tạo một hàng class - tối ưu"""
         count_var = self.counts_all[class_index]
 
         row = ttk.Frame(frame)
         row.pack(fill="x", pady=1)
 
-        # Hiển thị tên class
-        ttk.Label(row, text=class_name, width=22, anchor="w").pack(side="left")
+        # Hiển thị tên class - rộng hơn cho section "その他"
+        label_width = 28 if is_others_section else 22
+        ttk.Label(row, text=class_name, width=label_width, anchor="w").pack(side="left")
         
-        # Frame cho các nút điều khiển
+        # Frame điều khiển
         control_frame = ttk.Frame(row)
         control_frame.pack(side="right")
         
-        ttk.Button(control_frame, text="-", width=2, 
-                  command=lambda: self.decrement(class_index)).pack(side="left")
+        # Nút và entry
+        ttk.Button(control_frame, text="-", width=2,
+                  command=lambda idx=class_index: self.decrement(idx)).pack(side="left")
         
-        # Tạo Entry widget cho nhập số trực tiếp
-        entry = ttk.Entry(control_frame, width=4, justify="center", 
+        entry = ttk.Entry(control_frame, width=4, justify="center",
                          validate="key", validatecommand=self.vcmd)
         entry.pack(side="left", padx=2)
-        
-        # Bind sự kiện khi nhấn Enter
         entry.bind('<Return>', lambda e, idx=class_index: self.update_from_entry(idx))
-        # Bind sự kiện khi focus out
         entry.bind('<FocusOut>', lambda e, idx=class_index: self.update_from_entry(idx))
         
-        # Lưu entry widget
         self.entry_widgets[class_index] = entry
         
-        # Tạo label và lưu vào count_labels
-        count_label = ttk.Label(control_frame, textvariable=count_var, width=4, 
+        count_label = ttk.Label(control_frame, textvariable=count_var, width=4,
                               anchor="center", background="white", relief="solid")
         count_label.pack(side="left", padx=2)
         self.count_labels[class_index] = count_label
         
-        ttk.Button(control_frame, text="+", width=2, 
-                  command=lambda: self.increment(class_index)).pack(side="left")
+        ttk.Button(control_frame, text="+", width=2,
+                  command=lambda idx=class_index: self.increment(idx)).pack(side="left")
         
-        # Đồng bộ giá trị ban đầu
+        # Đồng bộ giá trị
         self.sync_entry_value(class_index)
+        
+        return {
+            'class_name': class_name,
+            'class_index': class_index,
+            'is_others_section': is_others_section
+        }
 
+    def _rebuild_ui_from_cache(self, cached_data):
+        """Xây dựng lại UI từ cache - rất nhanh"""
+        # Xóa widget cũ
+        for widget in self.class_frame.winfo_children():
+            widget.destroy()
+
+        self.count_labels.clear()
+        self.entry_widgets.clear()
+
+        # Tạo layout 3 cột
+        columns_frame = ttk.Frame(self.class_frame)
+        columns_frame.pack(fill="both", expand=True)
+        
+        left_column = ttk.Frame(columns_frame)
+        left_column.pack(side="left", fill="both", expand=True, padx=5)
+        
+        center_column = ttk.Frame(columns_frame)
+        center_column.pack(side="left", fill="both", expand=True, padx=5)
+        
+        right_column = ttk.Frame(columns_frame)
+        right_column.pack(side="left", fill="both", expand=True, padx=5)
+
+        # Xây dựng từ cache
+        for section_data in cached_data['left']:
+            self._build_section_from_cache(left_column, section_data)
+        for section_data in cached_data['center']:
+            self._build_section_from_cache(center_column, section_data)
+        for section_data in cached_data['right']:
+            self._build_section_from_cache(right_column, section_data)
+
+    def _build_section_from_cache(self, column, section_data):
+        """Xây dựng section từ cache"""
+        section_frame = ttk.LabelFrame(column, text=section_data['parent_name'], padding=5)
+        section_frame.pack(fill="both", expand=True, pady=5)
+        
+        for child_data in section_data['children']:
+            self._create_class_row(
+                section_frame, 
+                child_data['class_name'], 
+                child_data['class_index'], 
+                child_data['is_others_section']
+            )
+
+    # ----------------------------
+    # CÁC HÀM CÒN LẠI - ĐÃ SỬA LỖI
+    # ----------------------------
     def sync_entry_value(self, class_index):
-        """Đồng bộ giá trị từ IntVar sang Entry"""
         if class_index in self.entry_widgets:
             self.entry_widgets[class_index].delete(0, tk.END)
             self.entry_widgets[class_index].insert(0, str(self.counts_all[class_index].get()))
 
     def update_from_entry(self, class_index):
-        """Cập nhật giá trị từ Entry widget"""
         if class_index in self.entry_widgets:
             entry_value = self.entry_widgets[class_index].get()
             if entry_value.strip() == "":
@@ -290,9 +436,6 @@ class CounterApp:
             
             self.counts_all[class_index].set(new_value)
 
-    # ----------------------------
-    # HÀM ĐIỀU KHIỂN ĐẾM
-    # ----------------------------
     def increment(self, class_index):
         self.counts_all[class_index].set(self.counts_all[class_index].get() + 1)
         self.sync_entry_value(class_index)
@@ -303,9 +446,6 @@ class CounterApp:
             self.counts_all[class_index].set(val - 1)
             self.sync_entry_value(class_index)
 
-    # ----------------------------
-    # QUẢN LÝ THỜI GIAN
-    # ----------------------------
     def start_timer(self):
         if self.is_paused:
             self.session_start = time.time()
@@ -336,9 +476,6 @@ class CounterApp:
         self.timer_label.config(text=f"Working Time: {self.format_seconds_hms(total_seconds)}")
         self.root.after(1000, self.update_timer_display)
 
-    # ----------------------------
-    # LƯU FILE EXCEL
-    # ----------------------------
     def save_to_excel(self):
         dataset_name = self.dataset_name_entry.get().strip()
         if not dataset_name:
@@ -367,18 +504,33 @@ class CounterApp:
         elapsed_seconds = self.get_total_elapsed_seconds()
         elapsed_str = self.format_seconds_hms(elapsed_seconds)
 
-        # CHỈ lấy class con (không bao gồm class mẹ)
+        # CHỈ LẤY ĐÚNG 67 CLASS CON
         save_classes = []
         save_counts = []
         
-        for index in self.child_classes:  # Chỉ lấy class con
-            class_name = self.class_mapping[index].get(save_lang, f"Class_{index}")
-            save_classes.append(class_name)
-            save_counts.append(self.counts_all[index].get())
+        # Tạo danh sách tất cả class con theo thứ tự
+        all_child_indices = []
+        for parent_index in sorted(self.parent_classes.keys()):
+            child_indices = self._find_child_indices(parent_index)
+            all_child_indices.extend(child_indices)
+        
+        # Sắp xếp và chỉ lấy 67 class con
+        all_child_indices = sorted(all_child_indices)
+        
+        # In debug info
+        print(f"DEBUG: Total child indices found: {len(all_child_indices)}")
+        print(f"DEBUG: Child indices: {all_child_indices}")
+        
+        for index in all_child_indices:
+            if index in self.class_mapping:
+                class_name = self.class_mapping[index].get(save_lang, f"Class_{index}")
+                save_classes.append(class_name)
+                save_counts.append(self.counts_all[index].get())
+
+        print(f"DEBUG: Saving {len(save_classes)} classes to Excel")
 
         if os.path.exists(filename):
             wb = openpyxl.load_workbook(filename)
-            # Tìm sheet phù hợp hoặc tạo mới
             sheet_name = f"Counts_{save_lang}"
             if sheet_name in wb.sheetnames:
                 ws = wb[sheet_name]
@@ -389,32 +541,43 @@ class CounterApp:
             ws = wb.active
             ws.title = f"Counts_{save_lang}"
 
-        # Tạo header
-        if ws.max_row == 0 or [cell.value for cell in ws[1]][2:] != save_classes:
-            ws.delete_rows(1, ws.max_row)
+        # Tạo header nếu chưa có hoặc không khớp
+        if ws.max_row == 0:
             ws.append(["Dataset Name", "Working Time"] + save_classes)
+        else:
+            # Kiểm tra header hiện tại
+            current_header = [cell.value for cell in ws[1]]
+            expected_header = ["Dataset Name", "Working Time"] + save_classes
+            
+            if len(current_header) != len(expected_header) or current_header != expected_header:
+                # Header không khớp, xóa toàn bộ sheet và tạo lại
+                ws.delete_rows(1, ws.max_row)
+                ws.append(["Dataset Name", "Working Time"] + save_classes)
 
-        # Ghi đè nếu dataset trùng
+        # Tìm và cập nhật dòng hiện có, hoặc thêm mới
         found = False
-        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=False), start=2):
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row), start=2):
             if row[0].value == dataset_name:
+                # Cập nhật dòng hiện có
                 row[0].value = dataset_name
                 row[1].value = elapsed_str
-                for i, cell in enumerate(row[2:2+len(save_counts)], start=0):
+                for i, cell in enumerate(row[2:2+len(save_counts)]):
                     if i < len(save_counts):
                         cell.value = save_counts[i]
+                # Xóa dữ liệu thừa nếu có
+                for i in range(2+len(save_counts), len(row)):
+                    if i < len(row):
+                        row[i].value = None
                 found = True
                 break
 
         if not found:
+            # Thêm dòng mới
             ws.append([dataset_name, elapsed_str] + save_counts)
 
         wb.save(filename)
-        messagebox.showinfo("Success", f"Saved to {filename}")
+        messagebox.showinfo("Success", f"Saved to {filename}\nTotal classes: {len(save_classes)}")
 
-    # ----------------------------
-    # LOAD FILE EXCEL
-    # ----------------------------
     def load_from_excel(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
         if not filename:
@@ -428,7 +591,6 @@ class CounterApp:
         try:
             wb = openpyxl.load_workbook(filename)
             
-            # Tìm sheet phù hợp
             ws = None
             loaded_lang = None
             for sheet_name in wb.sheetnames:
@@ -436,13 +598,20 @@ class CounterApp:
                 header = [cell.value for cell in sheet[1]] if sheet.max_row > 0 else []
                 if len(header) >= 3:
                     excel_classes = header[2:]
-                    # Kiểm tra xem header có khớp với bất kỳ ngôn ngữ nào không
                     for lang in self.languages:
-                        # CHỈ so sánh class con
+                        # Tạo danh sách class con cho ngôn ngữ này
                         lang_child_classes = []
-                        for index in self.child_classes:
-                            class_name = self.class_mapping[index].get(lang, f"Class_{index}")
-                            lang_child_classes.append(class_name)
+                        all_child_indices = []
+                        for parent_index in sorted(self.parent_classes.keys()):
+                            child_indices = self._find_child_indices(parent_index)
+                            all_child_indices.extend(child_indices)
+                        
+                        all_child_indices = sorted(all_child_indices)
+                        
+                        for index in all_child_indices:
+                            if index in self.class_mapping:
+                                class_name = self.class_mapping[index].get(lang, f"Class_{index}")
+                                lang_child_classes.append(class_name)
                         
                         if excel_classes == lang_child_classes:
                             ws = sheet
@@ -457,7 +626,6 @@ class CounterApp:
             found = False
             for row in ws.iter_rows(min_row=2, values_only=True):
                 if row and row[0] == dataset_name:
-                    # Load thời gian làm việc
                     time_str = str(row[1])
                     if ':' in time_str:
                         h, m, s = map(int, time_str.split(":"))
@@ -465,29 +633,33 @@ class CounterApp:
                     self.session_start = None
                     self.is_paused = True
 
-                    # Load số lượng - ánh xạ theo class index
                     header = [cell.value for cell in ws[1]]
                     excel_classes = header[2:]
                     
-                    # Reset tất cả counts về 0 trước
                     for index in self.class_indexes:
                         self.counts_all[index].set(0)
                     
-                    # Ánh xạ class từ Excel vào class index (CHỈ class con)
+                    # Tạo danh sách class con để load
+                    all_child_indices = []
+                    for parent_index in sorted(self.parent_classes.keys()):
+                        child_indices = self._find_child_indices(parent_index)
+                        all_child_indices.extend(child_indices)
+                    
+                    all_child_indices = sorted(all_child_indices)
+                    
                     for i, excel_class in enumerate(excel_classes):
                         if i + 2 < len(row) and row[i + 2] is not None:
-                            # Tìm class index tương ứng (CHỈ trong class con)
-                            for index in self.child_classes:
-                                lang_dict = self.class_mapping[index]
-                                if excel_class in lang_dict.values():
-                                    self.counts_all[index].set(row[i + 2])
-                                    # Đồng bộ giá trị với entry widget
-                                    if index in self.entry_widgets:
-                                        self.sync_entry_value(index)
-                                    break
+                            # Tìm class index tương ứng
+                            for index in all_child_indices:
+                                if index in self.class_mapping:
+                                    lang_dict = self.class_mapping[index]
+                                    if excel_class in lang_dict.values():
+                                        self.counts_all[index].set(row[i + 2])
+                                        if index in self.entry_widgets:
+                                            self.sync_entry_value(index)
+                                        break
 
                     found = True
-                    # Cập nhật ngôn ngữ hiển thị nếu tìm thấy ngôn ngữ phù hợp
                     if loaded_lang:
                         self.current_language.set(loaded_lang)
                         self.update_language(loaded_lang)
